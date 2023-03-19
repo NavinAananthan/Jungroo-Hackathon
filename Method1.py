@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
-from googletrans import Translator
+from translator import Translator
+import tensorflow as tf
 
 # Read the image in grayscale
 img = cv2.imread('easy.png', 0)
@@ -20,13 +21,13 @@ img_bin = cv2.dilate(img_bin, kernel, iterations=1)
 contours, _ = cv2.findContours(img_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
 # Load the character classifier (replace this with your own classifier)
-char_classifier = cv2.ml.SVM_load('char_classifier.xml')
+char_classifier = tf.keras.models.load_model('char_classifier.h5')
 
 # Create a new image with the same size and color as the original image
 translated_img = np.zeros_like(img)
 
 # Initialize the translator
-translator = Translator()
+translator = Translator(to_lang="hi")
 
 # Iterate over each contour and extract the text
 for contour in contours:
@@ -46,13 +47,13 @@ for contour in contours:
     roi_norm = roi_flat / 255.0
 
     # Predict the character using the classifier
-    char_code = int(char_classifier.predict(roi_norm)[1][0][0])
+    char_code = np.argmax(char_classifier.predict(roi_norm))
 
     # Convert the character code to ASCII
     char = chr(char_code)
 
     # Translate the character to Hindi
-    translated_char = translator.translate(char, dest='hi').text
+    translated_char = translator.translate(char)
 
     # Draw the translated text on the new image
     cv2.putText(translated_img, translated_char, (x, y + h), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 255, 1, cv2.LINE_AA)
