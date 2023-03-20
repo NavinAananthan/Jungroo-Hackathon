@@ -3,25 +3,22 @@ import cv2
 from translator import Translator
 import tensorflow as tf
 
-# Read the image
-img = cv2.imread('img.png')
+# Read the image in grayscale
+img = cv2.imread('input.png', 0)
 
-# Apply Gaussian blur to reduce noise
-img_blur = cv2.GaussianBlur(img, (5, 5), 0)
+# Binarize the image
+_, img_bin = cv2.threshold(img, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
 
-# Convert the image to grayscale
-img_gray = cv2.cvtColor(img_blur, cv2.COLOR_BGR2GRAY)
-
-# Apply adaptive thresholding to binarize the image
-img_thresh = cv2.adaptiveThreshold(img_gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 11, 2)
+# Invert the image
+img_bin = 255 - img_bin
 
 # Apply morphological operations to remove noise
 kernel = np.ones((2, 1), np.uint8)
-img_morph = cv2.erode(img_thresh, kernel, iterations=1)
-img_morph = cv2.dilate(img_morph, kernel, iterations=1)
+img_bin = cv2.erode(img_bin, kernel, iterations=1)
+img_bin = cv2.dilate(img_bin, kernel, iterations=1)
 
 # Find contours in the image
-contours, _ = cv2.findContours(img_morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+contours, _ = cv2.findContours(img_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
 # Load the character classifier (replace this with your own classifier)
 char_classifier = tf.keras.models.load_model('char_classifier.h5')
@@ -39,45 +36,35 @@ bounding_boxes = [cv2.boundingRect(contour) for contour in contours]
 # Iterate over each contour and extract the text
 translated_text = ''
 for contour in contours:
-    # Filter out contours that are unlikely to be characters
+    # Get the bounding rectangle of the contour
     x, y, w, h = cv2.boundingRect(contour)
-    if w < 10 or h < 10 or w > 100 or h > 100:
-        continue
-    aspect_ratio = w / float(h)
-    if aspect_ratio < 0.1 or aspect_ratio > 10:
-        continue
 
     # Extract the region of interest (ROI) from the image
-    roi = img_gray[y:y + h, x:x + w]
-
-    moments = cv2.moments(roi)
-    if abs(moments['mu02']) < 1e-2:
-        skew = 0
-    else:
-        skew = moments['mu11'] / moments['mu02']
-    M = np.float32([[1, skew, -0.5 * w * skew], [0, 1, 0]])
-    roi = cv2.warpAffine(roi, M, (w, h), flags=cv2.WARP_INVERSE_MAP | cv2.INTER_LINEAR)
+    roi = img[y:y + h, x:x + w]
 
     # Resize the ROI to a fixed size
-    roi = cv2.resize(roi, (28, 28), interpolation=cv2.INTER_AREA)
+    roi = cv2.resize(roi, (20, 20))
 
-    # Reshape the ROI to a 4D tensor to feed it into the model
-    roi = np.expand_dims(np.expand_dims(roi, axis=-1), axis=0)
+    # Flatten the ROI into a 1D array
+    roi_flat = roi.reshape((1, 400)).astype(np.float32)
 
-    # Predict the class of the character
-    pred = char_classifier.predict(roi)
+    # Normalize the ROI
+    roi_norm = roi_flat / 255.0
+
+    # Predict the character using the classifier
+    char_code = np.argmax(char_classifier.predict(roi_norm))
+
+    # Convert the character code to ASCII
+    char = chr(char_code)
 
     # Translate the character to Hindi
-    char = chr(np.argmax(pred) + 65)
     translated_char = translator.translate(char)
+
+    # Add the translated character to the translated text
     translated_text += translated_char
 
-    # Draw a bounding box around the character
-    cv2.rectangle(translated_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-    # Put the translated character on the image
-    cv2.putText(translated_img, translated_char, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
+    # Draw the translated text on the new image
+    cv2.putText(translated_img, translated_char, (x, y + h), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 255, 1, cv2.LINE_AA)
 
 # Print the translated text
 print(translated_text)
